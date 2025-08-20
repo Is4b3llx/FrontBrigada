@@ -268,39 +268,25 @@ const BombForm = () => {
 
     // Manejador para campos simples de brigada con validaciones
     const handleInputChange = (e) => {
-        const { name, value } = e.target;
-        let processedValue = value;
+        let { name, value } = e.target;
 
-        // Aplicar validaciones en tiempo real según el campo
-        switch (name) {
-            case 'nombre':
-            case 'nombrecomandante':
-            case 'encargadologistica':
-                // Solo permite letras y espacios
-                processedValue = value.replace(/[^a-zA-Z\s]/g, '');
-                break;
-            case 'celularcomandante':
-            case 'celularlogistica':
-                // Solo permite números
-                processedValue = value.replace(/\D/g, '');
-                break;
-            case 'numerosemergencia':
-                // Solo permite números, comas y espacios
-                processedValue = value.replace(/[^0-9,\s]/g, '');
-                break;
-            case 'cantidadactivos':
-                processedValue = Math.max(1, parseInt(value) || 1);
-                break;
-            default:
-                processedValue = value;
+        // Aplicar validación basada en el nombre del campo
+        if (name === 'nombre' || name === 'nombrecomandante' || name === 'encargadologistica') {
+            // Permitir solo letras y espacios
+            value = value.replace(/[^a-zA-Z\s]/g, '');
+        } else if (name === 'celularcomandante' || name === 'celularlogistica' || name === 'numerosemergencia') {
+            // Permitir solo números
+            value = value.replace(/[^0-9]/g, '');
+        } else if (name === 'cantidadactivos') {
+            // Lógica existente para cantidad de activos
+            value = Math.max(1, parseInt(value) || 1);
         }
 
         setFormData(prev => ({
             ...prev,
-            [name]: processedValue
+            [name]: value
         }));
 
-        // Limpia el error para este campo si el usuario empieza a corregirlo
         if (formErrors[name]) {
             setFormErrors(prev => ({ ...prev, [name]: null }));
         }
@@ -366,50 +352,23 @@ const BombForm = () => {
     // Validar sección actual con más detalle
     const validateSection = (sectionId) => {
         const section = SECTIONS.find(s => s.id === sectionId);
-        if (!section) return true;
+        if (!section || !section.required) return true;
 
         const errors = {};
         let isValid = true;
 
-        section.fields.forEach(field => {
-            const fieldValue = formData[field]?.toString() || '';
-
-            // 1. Validar campos requeridos
-            if (section.required?.includes(field) && fieldValue.trim() === '') {
+        section.required.forEach(field => {
+            if (!formData[field] || formData[field].toString().trim() === '') {
                 errors[field] = 'Este campo es obligatorio';
                 isValid = false;
-            }
-
-            // 2. Validaciones de formato específicas (solo si el campo no está vacío)
-            if (fieldValue.trim() !== '') {
-                switch (field) {
-                    case 'nombre':
-                    case 'nombrecomandante':
-                    case 'encargadologistica':
-                        if (!/^[a-zA-Z\s]+$/.test(fieldValue)) {
-                            errors[field] = 'Este campo solo acepta letras y espacios.';
-                            isValid = false;
-                        }
-                        break;
-                    case 'celularcomandante':
-                    case 'celularlogistica':
-                        if (!/^\d{8}$/.test(fieldValue)) {
-                            errors[field] = 'El teléfono debe tener exactamente 8 dígitos.';
-                            isValid = false;
-                        }
-                        break;
-                    case 'numerosemergencia':
-                        if (!/^[0-9,\s]+$/.test(fieldValue)) {
-                            errors[field] = 'Solo se permiten números, comas y espacios.';
-                            isValid = false;
-                        }
-                        break;
-                    case 'cantidadactivos':
-                        if (parseInt(fieldValue) < 1) {
-                            errors[field] = 'Debe haber al menos un bombero activo.';
-                            isValid = false;
-                        }
-                        break;
+            } else if (field === 'cantidadactivos' && formData[field] < 1) {
+                errors[field] = 'Debe haber al menos un bombero activo';
+                isValid = false;
+            } else if ((field === 'celularcomandante' || field === 'celularlogistica')) {
+                const phoneValue = formData[field].toString().replace(/\D/g, '');
+                if (phoneValue.length !== 8) {
+                    errors[field] = 'El teléfono debe tener 8 dígitos';
+                    isValid = false;
                 }
             }
         });
@@ -417,7 +376,6 @@ const BombForm = () => {
         setFormErrors(errors);
         return isValid;
     };
-
 
     // Navegación entre secciones con validación
     const goToSection = (sectionId) => {
@@ -560,9 +518,9 @@ const BombForm = () => {
                     y = margin;
                 }
 
-                const lines = doc.splitTextToSize(text, maxWidth - (x-margin));
+                const lines = doc.splitTextToSize(text, maxWidth - x);
                 doc.text(lines, x, y);
-                y += lines.length * (size / 2.8) + 2; // Ajuste para espaciado de línea
+                y += lines.length * (size / 2 + 2);
             };
 
             // Cabecera del documento
@@ -580,7 +538,6 @@ const BombForm = () => {
 
             // Sección: Información de la Brigada
             addText('1. INFORMACIÓN DE LA BRIGADA', 14, 'bold');
-            y += 2;
             addText(`Nombre: ${formData.nombre}`);
             addText(`Bomberos activos: ${formData.cantidadactivos}`);
             addText(`Comandante: ${formData.nombrecomandante}`);
@@ -591,82 +548,149 @@ const BombForm = () => {
             y += 10;
 
             // Función para generar tablas de datos
-            const generateTable = (title, headers, data, customData = []) => {
-                if (y > 250) {
-                    doc.addPage();
-                    y = margin;
-                }
+            const generateTable = (title, headers, data) => {
                 addText(title, 14, 'bold');
+                y += 5;
 
-                const filteredData = Object.entries(data).filter(([key, value]) => {
+                const tableData = [];
+
+                // Encabezados
+                tableData.push(headers);
+
+                // Datos
+                Object.entries(data).forEach(([key, value]) => {
                     if (typeof value === 'object' && value !== null) {
-                        return Object.values(value).some(v => (typeof v === 'number' && v > 0) || (typeof v === 'string' && v.trim() !== ''));
+                        const row = headers.map(header => {
+                            if (header === 'Artículo' || header === 'Item') return key;
+                            return value[header.toLowerCase()] || '';
+                        });
+                        tableData.push(row);
                     }
-                    return false;
                 });
 
-                const body = filteredData.map(([key, value]) => {
-                    return headers.map(header => {
-                        const lowerHeader = header.toLowerCase();
-                        if(lowerHeader === 'item' || lowerHeader === 'artículo') return key;
-                        return value[lowerHeader] ?? '';
-                    });
+                autoTable(doc, {
+                    startY: y,
+                    head: [tableData[0]],
+                    body: tableData.slice(1),
+                    theme: 'grid',
+                    margin: { left: margin, right: margin },
+                    styles: { fontSize: 10 },
+                    headStyles: { fillColor: [220, 220, 220], fontStyle: 'bold' },
+                    alternateRowStyles: { fillColor: [245, 245, 245] }
                 });
 
-                customData.forEach(item => {
-                    body.push(headers.map(header => {
-                        const lowerHeader = header.toLowerCase();
-                        if(lowerHeader === 'item' || lowerHeader === 'artículo') return `${item.item} (Otro)`;
-                        return item[lowerHeader] ?? '';
-                    }));
-                });
-
-                if (body.length > 0) {
-                    autoTable(doc, {
-                        startY: y,
-                        head: [headers],
-                        body: body,
-                        theme: 'grid',
-                        margin: { left: margin, right: margin },
-                        styles: { fontSize: 8 },
-                        headStyles: { fillColor: [50, 50, 50], textColor: [255,255,255], fontStyle: 'bold' },
-                        alternateRowStyles: { fillColor: [245, 245, 245] }
-                    });
-                    y = doc.lastAutoTable.finalY + 10;
-                } else {
-                    addText('Sin requerimientos en esta sección.', 10, 'italic');
-                    y += 5;
-                }
+                y = doc.lastAutoTable.finalY + 10;
             };
 
-            // Generación de todas las tablas
-            generateTable('2. EPP - Ropa', ['Artículo', 'XS', 'S', 'M', 'L', 'XL', 'Observaciones'], eppRopa, eppRopaCustom);
-            generateTable('3. EPP - Equipo', ['Item', 'Cantidad', 'Observaciones'], eppEquipo, eppEquipoCustom);
-            generateTable('4. Herramientas', ['Item', 'Cantidad', 'Observaciones'], herramientas, herramientasCustom);
-            generateTable('5. Logística', ['Item', 'Costo', 'Observaciones'], logisticaRepuestos, logisticaRepuestosCustom);
-            generateTable('6. Alimentación', ['Item', 'Cantidad', 'Observaciones'], alimentacion, alimentacionCustom);
-            generateTable('7. Equipo de Campo', ['Item', 'Cantidad', 'Observaciones'], logisticaCampo, logisticaCampoCustom);
-            generateTable('8. Limpieza Personal', ['Item', 'Cantidad', 'Observaciones'], limpiezaPersonal, limpiezaPersonalCustom);
-            generateTable('9. Limpieza General', ['Item', 'Cantidad', 'Observaciones'], limpiezaGeneral, limpiezaGeneralCustom);
-            generateTable('10. Medicamentos', ['Item', 'Cantidad', 'Observaciones'], medicamentos, medicamentosCustom);
-            generateTable('11. Rescate Animal', ['Item', 'Cantidad', 'Observaciones'], rescateAnimal, rescateAnimalCustom);
+            // Sección: EPP - Ropa
+            generateTable('2. EQUIPAMIENTO EPP - ROPA',
+                ['Artículo', 'XS', 'S', 'M', 'L', 'XL', 'Observaciones'],
+                eppRopa
+            );
 
+            // Sección: EPP - Botas
+            addText('3. EQUIPAMIENTO EPP - BOTAS', 14, 'bold');
+            Object.entries(botas).forEach(([talla, cantidad]) => {
+                if (talla !== 'observaciones' && talla !== 'otratalla') {
+                    addText(`Talla ${talla === 'otra' ? 'Otra' : talla}: ${cantidad}`);
+                }
+            });
+            if (botas.otratalla) addText(`Otra talla: ${botas.otratalla}`);
+            if (botas.observaciones) addText(`Observaciones: ${botas.observaciones}`);
+            y += 10;
+
+            // Sección: EPP - Equipo
+            generateTable('4. EQUIPAMIENTO EPP - OTROS EQUIPOS',
+                ['Item', 'Cantidad', 'Observaciones'],
+                Object.fromEntries([
+                    ...EPP_EQUIPO_ITEMS.map(item => [item, eppEquipo[item]]),
+                    ...eppEquipoCustom.map((item, i) => [`${item.item} (adicional)`, item])
+                ])
+            );
+
+            // Sección: Herramientas
+            generateTable('5. HERRAMIENTAS',
+                ['Item', 'Cantidad', 'Observaciones'],
+                Object.fromEntries([
+                    ...HERRAMIENTAS_ITEMS.map(item => [item, herramientas[item]]),
+                    ...herramientasCustom.map((item, i) => [`${item.item} (adicional)`, item])
+                ])
+            );
+
+            // Sección: Logística
+            generateTable('6. LOGÍSTICA VEHÍCULOS',
+                ['Item', 'Costo (S/.)', 'Observaciones'],
+                Object.fromEntries([
+                    ...LOGISTICA_REPUESTOS_ITEMS.map(item => [item, logisticaRepuestos[item]]),
+                    ...logisticaRepuestosCustom.map((item, i) => [`${item.item} (adicional)`, item])
+                ])
+            );
+
+            // Sección: Alimentación
+            generateTable('7. ALIMENTACIÓN',
+                ['Item', 'Cantidad', 'Observaciones'],
+                Object.fromEntries([
+                    ...ALIMENTACION_ITEMS.map(item => [item, alimentacion[item]]),
+                    ...alimentacionCustom.map((item, i) => [`${item.item} (adicional)`, item])
+                ])
+            );
+
+            // Sección: Equipo de campo
+            generateTable('8. EQUIPO DE CAMPO',
+                ['Item', 'Cantidad', 'Observaciones'],
+                Object.fromEntries([
+                    ...CAMPO_ITEMS.map(item => [item, logisticaCampo[item]]),
+                    ...logisticaCampoCustom.map((item, i) => [`${item.item} (adicional)`, item])
+                ])
+            );
+
+            // Sección: Limpieza
+            generateTable('9. LIMPIEZA PERSONAL',
+                ['Item', 'Cantidad', 'Observaciones'],
+                Object.fromEntries([
+                    ...LIMPIEZA_PERSONAL_ITEMS.map(item => [item, limpiezaPersonal[item]]),
+                    ...limpiezaPersonalCustom.map((item, i) => [`${item.item} (adicional)`, item])
+                ])
+            );
+
+            generateTable('10. LIMPIEZA GENERAL',
+                ['Item', 'Cantidad', 'Observaciones'],
+                Object.fromEntries([
+                    ...LIMPIEZA_GENERAL_ITEMS.map(item => [item, limpiezaGeneral[item]]),
+                    ...limpiezaGeneralCustom.map((item, i) => [`${item.item} (adicional)`, item])
+                ])
+            );
+
+            // Sección: Medicamentos
+            generateTable('11. MEDICAMENTOS',
+                ['Item', 'Cantidad', 'Observaciones'],
+                Object.fromEntries([
+                    ...MEDICAMENTOS_ITEMS.map(item => [item, medicamentos[item]]),
+                    ...medicamentosCustom.map((item, i) => [`${item.item} (adicional)`, item])
+                ])
+            );
+
+            // Sección: Rescate animal
+            generateTable('12. RESCATE ANIMAL',
+                ['Item', 'Cantidad', 'Observaciones'],
+                Object.fromEntries([
+                    ...RESCATE_ANIMAL_ITEMS.map(item => [item, rescateAnimal[item]]),
+                    ...rescateAnimalCustom.map((item, i) => [`${item.item} (adicional)`, item])
+                ])
+            );
 
             // Pie de página
-            const pageCount = doc.internal.getNumberOfPages();
-            for (let i = 1; i <= pageCount; i++) {
-                doc.setPage(i);
-                doc.setFontSize(8);
-                doc.setTextColor(150);
-                doc.text(`Página ${i} de ${pageCount}`, pageWidth / 2, 290, { align: 'center' });
-            }
+            doc.setFontSize(10);
+            doc.setTextColor(100);
+            doc.text('Formulario generado automáticamente por el Sistema de Gestión de Brigadas',
+                pageWidth / 2, 290, { align: 'center' });
 
             // Guardar PDF
             doc.save(`formulario-brigada-${formData.nombre.replace(/\s+/g, '_') || 'sin_nombre'}.pdf`);
 
             setSubmitStatus({
                 success: true,
-                message: 'PDF generado correctamente.'
+                message: 'PDF generado correctamente. Puedes descargar tu formulario completo como respaldo.'
             });
         } catch (error) {
             console.error('Error al generar PDF:', error);
@@ -679,6 +703,85 @@ const BombForm = () => {
         }
     };
 
+    // Renderizar navegación con indicador de progreso
+    const renderNavigation = () => {
+        const currentIndex = SECTIONS.findIndex(s => s.id === activeSection);
+        const isLastSection = currentIndex === SECTIONS.length - 1;
+        const progress = ((currentIndex + 1) / SECTIONS.length) * 100;
+
+        return (
+            <div className="mt-8">
+                {/* Barra de progreso */}
+                <div className="mb-4 w-full bg-gray-200 rounded-full h-2.5">
+                    <div
+                        className="bg-green-500 h-2.5 rounded-full"
+                        style={{ width: `${progress}%`, transition: 'width 0.3s ease' }}
+                    ></div>
+                </div>
+
+                <div className="flex flex-col md:flex-row justify-between gap-4">
+                    <div className="flex justify-between md:justify-start gap-4">
+                        <button
+                            type="button"
+                            onClick={() => {
+                                if (currentIndex > 0) {
+                                    setActiveSection(SECTIONS[currentIndex - 1].id);
+                                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                                }
+                            }}
+                            disabled={currentIndex === 0}
+                            className={`px-6 py-2 rounded-lg font-medium transition-colors ${
+                                currentIndex === 0
+                                    ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
+                                    : `bg-white text-${currentColors.primary} border border-${currentColors.primary} hover:bg-${currentColors.primary} hover:text-white`
+                            }`}
+                            style={{
+                                color: currentIndex === 0 ? '' : currentColors.primary,
+                                borderColor: currentIndex === 0 ? '' : currentColors.primary,
+                                backgroundColor: currentIndex === 0 ? '' : 'white',
+                                '&:hover': {
+                                    backgroundColor: currentColors.primary,
+                                    color: 'white'
+                                }
+                            }}
+                        >
+                            Anterior
+                        </button>
+                    </div>
+
+                    <div className="flex items-center justify-end gap-4">
+                        {submitStatus.message && (
+                            <div className={`px-4 py-2 rounded-lg ${
+                                submitStatus.success ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                            }`}>
+                                {submitStatus.message}
+                            </div>
+                        )}
+
+                        <button
+                            type="submit"
+                            disabled={isSubmitting}
+                            className={`px-6 py-2 rounded-lg font-medium text-white transition-colors ${
+                                isSubmitting
+                                    ? 'bg-gray-400 cursor-not-allowed'
+                                    : `bg-${currentColors.primary} hover:bg-${currentColors.primary}`
+                            }`}
+                            style={{
+                                backgroundColor: isSubmitting ? '#9ca3af' : currentColors.primary,
+                                '&:hover': {
+                                    backgroundColor: currentColors.primary
+                                }
+                            }}
+                        >
+                            {isLastSection
+                                ? (isSubmitting ? 'Enviando...' : 'Finalizar')
+                                : (isSubmitting ? 'Guardando...' : 'Siguiente')}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        );
+    };
 
     // Estilos dinámicos para modo oscuro
     const bgColor = darkMode ? 'bg-gray-900' : 'bg-white';
@@ -756,14 +859,14 @@ const BombForm = () => {
                                     key={section.id}
                                     type="button"
                                     onClick={() => goToSection(section.id)}
-                                    className={`px-4 py-2 rounded-lg whitespace-nowrap text-sm font-medium transition-all duration-200 ${
+                                    className={`px-4 py-2 rounded-lg whitespace-nowrap text-sm font-medium transition-colors ${
                                         activeSection === section.id
                                             ? 'text-white shadow-md'
                                             : `${darkMode ? 'bg-gray-700 text-gray-300 hover:bg-gray-600' : 'bg-white text-gray-700 hover:bg-gray-100'}`
                                     }`}
                                     style={{
                                         backgroundColor: activeSection === section.id ? sectionColors.primary : '',
-                                        borderColor: activeSection !== section.id ? (darkMode ? sectionColors.secondary+'40' : sectionColors.primary+'80') : 'transparent'
+                                        border: activeSection === section.id ? 'none' : `1px solid ${darkMode ? sectionColors.secondary : sectionColors.primary}`
                                     }}
                                 >
                                     {section.name}
@@ -927,7 +1030,7 @@ const BombForm = () => {
                                             formErrors.celularcomandante ? 'border-red-500 focus:ring-red-500' :
                                                 darkMode ? 'focus:border-purple-400' : 'focus:border-blue-500'
                                         }`}
-                                        placeholder="Ej: 76543210"
+                                        placeholder="Ej: 987654321"
                                         maxLength={8}
                                         required
                                     />
@@ -952,14 +1055,10 @@ const BombForm = () => {
                                         value={formData.encargadologistica}
                                         onChange={handleInputChange}
                                         className={`${inputStyle} ${
-                                            formErrors.encargadologistica ? 'border-red-500 focus:ring-red-500' :
-                                                darkMode ? 'focus:border-purple-400' : 'focus:border-blue-500'
+                                            darkMode ? 'focus:border-purple-400' : 'focus:border-blue-500'
                                         }`}
                                         placeholder="Nombre completo del encargado"
                                     />
-                                    {formErrors.encargadologistica && (
-                                        <p className="mt-1 text-sm text-red-500">{formErrors.encargadologistica}</p>
-                                    )}
                                 </div>
 
                                 {/* Campo Teléfono Logística */}
@@ -976,7 +1075,7 @@ const BombForm = () => {
                                             formErrors.celularlogistica ? 'border-red-500 focus:ring-red-500' :
                                                 darkMode ? 'focus:border-purple-400' : 'focus:border-blue-500'
                                         }`}
-                                        placeholder="Ej: 65432109"
+                                        placeholder="Ej: 987654321"
                                         maxLength={8}
                                     />
                                     {formErrors.celularlogistica && (
@@ -990,30 +1089,1130 @@ const BombForm = () => {
                                         Números de Emergencia (Opcional)
                                     </label>
                                     <input
-                                        type="text"
+                                        type="tel"
                                         name="numerosemergencia"
                                         value={formData.numerosemergencia}
                                         onChange={handleInputChange}
                                         className={`${inputStyle} ${
-                                            formErrors.numerosemergencia ? 'border-red-500 focus:ring-red-500' :
-                                                darkMode ? 'focus:border-purple-400' : 'focus:border-blue-500'
+                                            darkMode ? 'focus:border-purple-400' : 'focus:border-blue-500'
                                         }`}
                                         placeholder="Ej: 12345678, 87654321"
                                     />
-                                    {formErrors.numerosemergencia && (
-                                        <p className="mt-1 text-sm text-red-500">{formErrors.numerosemergencia}</p>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Equipamiento EPP */}
+                    {activeSection === 'epp' && (
+                        <div className="space-y-6">
+                            <h2 className={`text-xl font-bold border-l-4 pl-3 py-1 ${
+                                darkMode ? 'border-purple-400' : 'border-purple-600'
+                            }`}>
+                                Equipamiento de Protección Personal
+                            </h2>
+
+                            <div className="grid grid-cols-1 gap-6">
+                                <div className={`${cardBg} p-4 rounded-lg border ${borderColor}`}>
+                                    <h3 className="font-semibold mb-3">Ropa</h3>
+
+                                    <div className="overflow-x-auto">
+                                        <table className="min-w-full divide-y divide-gray-200">
+                                            <thead className={`${darkMode ? 'bg-gray-700' : 'bg-gray-100'}`}>
+                                            <tr>
+                                                <th className="px-4 py-2 text-left text-xs font-medium uppercase tracking-wider">Artículo</th>
+                                                <th className="px-4 py-2 text-center text-xs font-medium uppercase tracking-wider">XS</th>
+                                                <th className="px-4 py-2 text-center text-xs font-medium uppercase tracking-wider">S</th>
+                                                <th className="px-4 py-2 text-center text-xs font-medium uppercase tracking-wider">M</th>
+                                                <th className="px-4 py-2 text-center text-xs font-medium uppercase tracking-wider">L</th>
+                                                <th className="px-4 py-2 text-center text-xs font-medium uppercase tracking-wider">XL</th>
+                                                <th className="px-4 py-2 text-left text-xs font-medium uppercase tracking-wider">Observaciones</th>
+                                            </tr>
+                                            </thead>
+                                            <tbody className={`${darkMode ? 'bg-gray-800 divide-gray-700' : 'bg-white divide-gray-200'}`}>
+                                            {EPP_ROPA_ITEMS.map((itemNombre, rowIndex) => (
+                                                <tr key={itemNombre} className={rowIndex % 2 === 1 ? (darkMode ? 'bg-gray-800' : 'bg-gray-50') : ''}>
+                                                    <td className="px-4 py-3 text-sm font-medium">{itemNombre}</td>
+                                                    {['xs','s','m','l','xl'].map(sizeKey => (
+                                                        <td key={sizeKey} className="px-4 py-3">
+                                                            <NumberInput
+                                                                value={eppRopa[itemNombre][sizeKey]}
+                                                                onChange={(value) => handleEppRopaSizeChange(itemNombre, sizeKey, value)}
+                                                                min="0"
+                                                                darkMode={darkMode}
+                                                                className="mx-auto"
+                                                            />
+                                                        </td>
+                                                    ))}
+                                                    <td className="px-4 py-3">
+                                                        <input
+                                                            type="text"
+                                                            className={`w-full px-2 py-1 border rounded ${
+                                                                darkMode ? 'bg-gray-700 border-gray-600' : 'border-gray-300'
+                                                            }`}
+                                                            placeholder="Notas"
+                                                            value={eppRopa[itemNombre].observaciones}
+                                                            maxLength={400}
+                                                            onChange={(e) => handleEppRopaObsChange(itemNombre, e.target.value)}
+                                                        />
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+
+                                <div className={`${cardBg} p-4 rounded-lg border ${borderColor}`}>
+                                    <h3 className="font-semibold mb-3">Botas para Bomberos</h3>
+
+                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                        {BOTAS_SIZES.map(size => (
+                                            <div key={size} className="flex items-center">
+                                                <label className="text-sm w-28">Talla {size === 'otra' ? 'Otra' : size}</label>
+                                                <NumberInput
+                                                    value={botas[size]}
+                                                    onChange={(value) => handleBotasChange(size, value)}
+                                                    min="0"
+                                                    darkMode={darkMode}
+                                                />
+                                            </div>
+                                        ))}
+                                        <div className="col-span-full">
+                                            <label className="text-sm">Otra talla (texto)</label>
+                                            <input
+                                                type="text"
+                                                className={`w-full px-2 py-1 border rounded ${
+                                                    darkMode ? 'bg-gray-700 border-gray-600' : 'border-gray-300'
+                                                }`}
+                                                placeholder="Especifica otra talla, por ejemplo 44/45..."
+                                                value={botas.otratalla}
+                                                maxLength={80}
+                                                onChange={(e) => handleBotasOtraTallaText(e.target.value)}
+                                            />
+                                        </div>
+                                        <div className="col-span-full">
+                                            <label className="text-sm">Observaciones</label>
+                                            <input
+                                                type="text"
+                                                className={`w-full px-2 py-1 border rounded ${
+                                                    darkMode ? 'bg-gray-700 border-gray-600' : 'border-gray-300'
+                                                }`}
+                                                placeholder="Notas generales de botas"
+                                                value={botas.observaciones}
+                                                maxLength={400}
+                                                onChange={(e) => handleBotasObsChange(e.target.value)}
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className={`${cardBg} p-4 rounded-lg border ${borderColor}`}>
+                                    <h3 className="font-semibold mb-3">Otros Equipos EPP</h3>
+
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        {EPP_EQUIPO_ITEMS.map(item => (
+                                            <div key={item} className="flex items-center justify-between">
+                                                <label className="text-sm">{item}</label>
+                                                <div className="flex items-center space-x-2">
+                                                    <NumberInput
+                                                        value={eppEquipo[item].cantidad}
+                                                        onChange={(value) => handleListQuantityChange(setEppEquipo)(item, value)}
+                                                        min="0"
+                                                        darkMode={darkMode}
+                                                    />
+                                                    <input
+                                                        type="text"
+                                                        className={`w-40 px-2 py-1 border rounded ${
+                                                            darkMode ? 'bg-gray-700 border-gray-600' : 'border-gray-300'
+                                                        }`}
+                                                        placeholder="Observaciones"
+                                                        value={eppEquipo[item].observaciones}
+                                                        maxLength={400}
+                                                        onChange={(e) => handleListObsChange(setEppEquipo)(item, e.target.value)}
+                                                    />
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                {/* EPP Equipo - Otros */}
+                                <div className={`${cardBg} p-4 rounded-lg border ${borderColor}`}>
+                                    <div className="mb-3 flex items-center justify-between">
+                                        <h3 className="font-semibold">Otros</h3>
+                                        <button
+                                            type="button"
+                                            className={`rounded-md border px-3 py-1 text-sm ${
+                                                darkMode
+                                                    ? 'border-gray-300 text-gray-300 hover:bg-gray-700'
+                                                    : 'border-gray-700 text-gray-700 hover:bg-gray-200'
+                                            }`}
+                                            onClick={() => setEppEquipoCustom(prev => [...prev, { item: '', cantidad: 0, observaciones: '' }])}
+                                        >
+                                            Añadir otro
+                                        </button>
+                                    </div>
+                                    {eppEquipoCustom.length === 0 ? (
+                                        <p className={`text-sm ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>No hay ítems personalizados aún.</p>
+                                    ) : (
+                                        <div className="space-y-3">
+                                            {eppEquipoCustom.map((row, idx) => (
+                                                <div key={idx} className="grid grid-cols-1 md:grid-cols-4 gap-3 items-center">
+                                                    <input
+                                                        type="text"
+                                                        className={`px-2 py-1 border rounded ${
+                                                            darkMode ? 'bg-gray-700 border-gray-600' : 'border-gray-300'
+                                                        }`}
+                                                        placeholder="Nombre del ítem"
+                                                        value={row.item}
+                                                        onChange={(e) => setEppEquipoCustom(prev => prev.map((r,i) => i===idx ? { ...r, item: e.target.value } : r))}
+                                                    />
+                                                    <NumberInput
+                                                        value={row.cantidad}
+                                                        onChange={(value) => setEppEquipoCustom(prev => prev.map((r,i) => i===idx ? { ...r, cantidad: value } : r))}
+                                                        min="0"
+                                                        darkMode={darkMode}
+                                                    />
+                                                    <input
+                                                        type="text"
+                                                        className={`px-2 py-1 border rounded col-span-1 md:col-span-2 ${
+                                                            darkMode ? 'bg-gray-700 border-gray-600' : 'border-gray-300'
+                                                        }`}
+                                                        placeholder="Observaciones"
+                                                        value={row.observaciones}
+                                                        onChange={(e) => setEppEquipoCustom(prev => prev.map((r,i) => i===idx ? { ...r, observaciones: e.target.value } : r))}
+                                                    />
+                                                    <button
+                                                        type="button"
+                                                        className={`justify-self-end rounded-md border px-3 py-1 text-sm ${
+                                                            darkMode
+                                                                ? 'border-red-500 text-red-400 hover:bg-red-900'
+                                                                : 'border-red-700 text-red-700 hover:bg-red-100'
+                                                        }`}
+                                                        onClick={() => setEppEquipoCustom(prev => prev.filter((_,i)=> i!==idx))}
+                                                    >
+                                                        Quitar
+                                                    </button>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* EPP Ropa - Otros */}
+                                <div className={`${cardBg} p-4 rounded-lg border ${borderColor}`}>
+                                    <div className="mb-3 flex items-center justify-between">
+                                        <h3 className="font-semibold">Ropa - Otros</h3>
+                                        <button
+                                            type="button"
+                                            className={`rounded-md border px-3 py-1 text-sm ${
+                                                darkMode
+                                                    ? 'border-gray-300 text-gray-300 hover:bg-gray-700'
+                                                    : 'border-gray-700 text-gray-700 hover:bg-gray-200'
+                                            }`}
+                                            onClick={() => setEppRopaCustom(prev => [...prev, { item: '', xs:0, s:0, m:0, l:0, xl:0, observaciones:'' }])}
+                                        >
+                                            Añadir otro
+                                        </button>
+                                    </div>
+                                    {eppRopaCustom.length === 0 ? (
+                                        <p className={`text-sm ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>No hay prendas personalizadas aún.</p>
+                                    ) : (
+                                        <div className="space-y-3">
+                                            {eppRopaCustom.map((row, idx) => (
+                                                <div key={idx} className="grid grid-cols-1 md:grid-cols-7 gap-3 items-center">
+                                                    <input
+                                                        type="text"
+                                                        className={`px-2 py-1 border rounded ${
+                                                            darkMode ? 'bg-gray-700 border-gray-600' : 'border-gray-300'
+                                                        }`}
+                                                        placeholder="Prenda"
+                                                        value={row.item}
+                                                        onChange={(e) => setEppRopaCustom(prev => prev.map((r,i)=> i===idx ? { ...r, item: e.target.value } : r))}
+                                                    />
+                                                    {['xs','s','m','l','xl'].map(sizeKey => (
+                                                        <NumberInput
+                                                            key={sizeKey}
+                                                            value={row[sizeKey]}
+                                                            onChange={(value) => setEppRopaCustom(prev => prev.map((r,i)=> i===idx ? { ...r, [sizeKey]: value } : r))}
+                                                            min="0"
+                                                            darkMode={darkMode}
+                                                        />
+                                                    ))}
+                                                    <input
+                                                        type="text"
+                                                        className={`px-2 py-1 border rounded col-span-1 ${
+                                                            darkMode ? 'bg-gray-700 border-gray-600' : 'border-gray-300'
+                                                        }`}
+                                                        placeholder="Observaciones"
+                                                        value={row.observaciones}
+                                                        onChange={(e) => setEppRopaCustom(prev => prev.map((r,i)=> i===idx ? { ...r, observaciones: e.target.value } : r))}
+                                                    />
+                                                    <button
+                                                        type="button"
+                                                        className={`justify-self-end rounded-md border px-3 py-1 text-sm ${
+                                                            darkMode
+                                                                ? 'border-red-500 text-red-400 hover:bg-red-900'
+                                                                : 'border-red-700 text-red-700 hover:bg-red-100'
+                                                        }`}
+                                                        onClick={() => setEppRopaCustom(prev => prev.filter((_,i)=> i!==idx))}
+                                                    >
+                                                        Quitar
+                                                    </button>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+
+                                <div className={`${cardBg} p-4 rounded-lg border ${borderColor}`}>
+                                    <h3 className="font-semibold mb-3">Guantes</h3>
+
+                                    <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                                        {GUANTES_SIZES.map(talla => (
+                                            <div key={talla} className="flex items-center">
+                                                <label className="text-sm w-28">Talla {talla}</label>
+                                                <NumberInput
+                                                    value={guantes[talla]}
+                                                    onChange={(value) => handleGuantesChange(talla, value)}
+                                                    min="0"
+                                                    darkMode={darkMode}
+                                                />
+                                            </div>
+                                        ))}
+                                    </div>
+                                    <div className="mt-4 grid grid-cols-1 gap-3">
+                                        <div className="flex items-center">
+                                            <label className="text-sm w-40">Otra talla (texto)</label>
+                                            <input
+                                                type="text"
+                                                className={`flex-1 px-2 py-1 border rounded ${
+                                                    darkMode ? 'bg-gray-700 border-gray-600' : 'border-gray-300'
+                                                }`}
+                                                placeholder="Describe talla extra (por ej. Talla única, 7.5, etc.)"
+                                                value={guantes.otratalla}
+                                                maxLength={80}
+                                                onChange={(e) => handleGuantesOtraTallaText(e.target.value)}
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Herramientas */}
+                    {activeSection === 'tools' && (
+                        <div className="space-y-6">
+                            <h2 className={`text-xl font-bold border-l-4 pl-3 py-1 ${
+                                darkMode ? 'border-indigo-400' : 'border-indigo-600'
+                            }`}>
+                                Herramientas
+                            </h2>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                {HERRAMIENTAS_ITEMS.map(tool => (
+                                    <div key={tool} className={`flex items-center justify-between ${cardBg} p-4 rounded-lg border ${borderColor}`}>
+                                        <label className="text-sm font-medium">{tool}</label>
+                                        <div className="flex items-center space-x-2">
+                                            <NumberInput
+                                                value={herramientas[tool].cantidad}
+                                                onChange={(value) => handleListQuantityChange(setHerramientas)(tool, value)}
+                                                min="0"
+                                                darkMode={darkMode}
+                                            />
+                                            <input
+                                                type="text"
+                                                className={`w-40 px-2 py-1 border rounded ${
+                                                    darkMode ? 'bg-gray-700 border-gray-600' : 'border-gray-300'
+                                                }`}
+                                                placeholder="Observaciones"
+                                                value={herramientas[tool].observaciones}
+                                                maxLength={400}
+                                                onChange={(e) => handleListObsChange(setHerramientas)(tool, e.target.value)}
+                                            />
+                                        </div>
+                                    </div>
+                                ))}
+
+                                {/* Herramientas - Otros */}
+                                <div className={`md:col-span-2 ${cardBg} p-4 rounded-lg border ${borderColor}`}>
+                                    <div className="mb-3 flex items-center justify-between">
+                                        <h3 className="font-semibold">Otros</h3>
+                                        <button
+                                            type="button"
+                                            className={`rounded-md border px-3 py-1 text-sm ${
+                                                darkMode
+                                                    ? 'border-gray-300 text-gray-300 hover:bg-gray-700'
+                                                    : 'border-gray-700 text-gray-700 hover:bg-gray-200'
+                                            }`}
+                                            onClick={() => setHerramientasCustom(prev => [...prev, { item: '', cantidad: 0, observaciones: '' }])}
+                                        >
+                                            Añadir otro
+                                        </button>
+                                    </div>
+                                    {herramientasCustom.length === 0 ? (
+                                        <p className={`text-sm ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>No hay ítems personalizados aún.</p>
+                                    ) : (
+                                        <div className="space-y-3">
+                                            {herramientasCustom.map((row, idx) => (
+                                                <div key={idx} className="grid grid-cols-1 md:grid-cols-4 gap-3 items-center">
+                                                    <input
+                                                        type="text"
+                                                        className={`px-2 py-1 border rounded ${
+                                                            darkMode ? 'bg-gray-700 border-gray-600' : 'border-gray-300'
+                                                        }`}
+                                                        placeholder="Nombre"
+                                                        value={row.item}
+                                                        onChange={(e)=> setHerramientasCustom(prev => prev.map((r,i)=> i===idx ? { ...r, item: e.target.value } : r))}
+                                                    />
+                                                    <NumberInput
+                                                        value={row.cantidad}
+                                                        onChange={(value) => setHerramientasCustom(prev => prev.map((r,i)=> i===idx ? { ...r, cantidad: value } : r))}
+                                                        min="0"
+                                                        darkMode={darkMode}
+                                                    />
+                                                    <input
+                                                        type="text"
+                                                        className={`px-2 py-1 border rounded col-span-1 md:col-span-2 ${
+                                                            darkMode ? 'bg-gray-700 border-gray-600' : 'border-gray-300'
+                                                        }`}
+                                                        placeholder="Observaciones"
+                                                        value={row.observaciones}
+                                                        onChange={(e)=> setHerramientasCustom(prev => prev.map((r,i)=> i===idx ? { ...r, observaciones: e.target.value } : r))}
+                                                    />
+                                                    <button
+                                                        type="button"
+                                                        className={`justify-self-end rounded-md border px-3 py-1 text-sm ${
+                                                            darkMode
+                                                                ? 'border-red-500 text-red-400 hover:bg-red-900'
+                                                                : 'border-red-700 text-red-700 hover:bg-red-100'
+                                                        }`}
+                                                        onClick={()=> setHerramientasCustom(prev => prev.filter((_,i)=> i!==idx))}
+                                                    >
+                                                        Quitar
+                                                    </button>
+                                                </div>
+                                            ))}
+                                        </div>
                                     )}
                                 </div>
                             </div>
                         </div>
                     )}
 
-                    {/* El resto de las secciones (EPP, Herramientas, etc.) permanecen aquí sin cambios en su JSX */}
-                    {/* ... */}
+                    {/* Logística Vehículos */}
+                    {activeSection === 'logistics' && (
+                        <div className="space-y-6">
+                            <h2 className={`text-xl font-bold border-l-4 pl-3 py-1 ${
+                                darkMode ? 'border-blue-400' : 'border-blue-600'
+                            }`}>
+                                Logística: Repuestos y Combustibles
+                            </h2>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                {LOGISTICA_REPUESTOS_ITEMS.map(item => (
+                                    <div key={item} className={`flex items-center justify-between ${cardBg} p-4 rounded-lg border ${borderColor}`}>
+                                        <label className="text-sm font-medium">{item}</label>
+                                        <div className="flex items-center space-x-2">
+                                            <div className="flex items-center">
+                                                <span className="mr-1">S/.</span>
+                                                <input
+                                                    type="number"
+                                                    min="0"
+                                                    step="0.01"
+                                                    className={`w-24 px-2 py-1 border rounded text-center ${
+                                                        darkMode ? 'bg-gray-700 border-gray-600' : 'border-gray-300'
+                                                    }`}
+                                                    placeholder="Monto"
+                                                    value={logisticaRepuestos[item].costo}
+                                                    onChange={(e) => handleListCostChange(setLogisticaRepuestos)(item, e.target.value)}
+                                                />
+                                            </div>
+                                            <input
+                                                type="text"
+                                                className={`w-40 px-2 py-1 border rounded ${
+                                                    darkMode ? 'bg-gray-700 border-gray-600' : 'border-gray-300'
+                                                }`}
+                                                placeholder="Observaciones"
+                                                value={logisticaRepuestos[item].observaciones}
+                                                maxLength={400}
+                                                onChange={(e) => handleListObsChange(setLogisticaRepuestos)(item, e.target.value)}
+                                            />
+                                        </div>
+                                    </div>
+                                ))}
+
+                                {/* Logística - Otros */}
+                                <div className={`md:col-span-2 ${cardBg} p-4 rounded-lg border ${borderColor}`}>
+                                    <div className="mb-3 flex items-center justify-between">
+                                        <h3 className="font-semibold">Otros</h3>
+                                        <button
+                                            type="button"
+                                            className={`rounded-md border px-3 py-1 text-sm ${
+                                                darkMode
+                                                    ? 'border-gray-300 text-gray-300 hover:bg-gray-700'
+                                                    : 'border-gray-700 text-gray-700 hover:bg-gray-200'
+                                            }`}
+                                            onClick={() => setLogisticaRepuestosCustom(prev => [...prev, { item:'', costo:0, observaciones:'' }])}
+                                        >
+                                            Añadir otro
+                                        </button>
+                                    </div>
+                                    {logisticaRepuestosCustom.length === 0 ? (
+                                        <p className={`text-sm ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>No hay ítems personalizados aún.</p>
+                                    ) : (
+                                        <div className="space-y-3">
+                                            {logisticaRepuestosCustom.map((row, idx) => (
+                                                <div key={idx} className="grid grid-cols-1 md:grid-cols-4 gap-3 items-center">
+                                                    <input
+                                                        type="text"
+                                                        className={`px-2 py-1 border rounded ${
+                                                            darkMode ? 'bg-gray-700 border-gray-600' : 'border-gray-300'
+                                                        }`}
+                                                        placeholder="Nombre"
+                                                        value={row.item}
+                                                        onChange={(e)=> setLogisticaRepuestosCustom(prev => prev.map((r,i)=> i===idx ? { ...r, item: e.target.value } : r))}
+                                                    />
+                                                    <div className="flex items-center">
+                                                        <span className="mr-1">S/.</span>
+                                                        <input
+                                                            type="number"
+                                                            min="0"
+                                                            step="0.01"
+                                                            className={`px-2 py-1 border rounded ${
+                                                                darkMode ? 'bg-gray-700 border-gray-600' : 'border-gray-300'
+                                                            }`}
+                                                            placeholder="Costo"
+                                                            value={row.costo}
+                                                            onChange={(e)=> setLogisticaRepuestosCustom(prev => prev.map((r,i)=> i===idx ? { ...r, costo: Number(e.target.value)||0 } : r))}
+                                                        />
+                                                    </div>
+                                                    <input
+                                                        type="text"
+                                                        className={`px-2 py-1 border rounded col-span-1 md:col-span-2 ${
+                                                            darkMode ? 'bg-gray-700 border-gray-600' : 'border-gray-300'
+                                                        }`}
+                                                        placeholder="Observaciones"
+                                                        value={row.observaciones}
+                                                        onChange={(e)=> setLogisticaRepuestosCustom(prev => prev.map((r,i)=> i===idx ? { ...r, observaciones: e.target.value } : r))}
+                                                    />
+                                                    <button
+                                                        type="button"
+                                                        className={`justify-self-end rounded-md border px-3 py-1 text-sm ${
+                                                            darkMode
+                                                                ? 'border-red-500 text-red-400 hover:bg-red-900'
+                                                                : 'border-red-700 text-red-700 hover:bg-red-100'
+                                                        }`}
+                                                        onClick={()=> setLogisticaRepuestosCustom(prev => prev.filter((_,i)=> i!==idx))}
+                                                    >
+                                                        Quitar
+                                                    </button>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Alimentación */}
+                    {activeSection === 'food' && (
+                        <div className="space-y-6">
+                            <h2 className={`text-xl font-bold border-l-4 pl-3 py-1 ${
+                                darkMode ? 'border-blue-300' : 'border-blue-500'
+                            }`}>
+                                Alimentación y Bebidas
+                            </h2>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                {ALIMENTACION_ITEMS.map(item => (
+                                    <div key={item} className={`flex items-center justify-between ${cardBg} p-4 rounded-lg border ${borderColor}`}>
+                                        <label className="text-sm font-medium">{item}</label>
+                                        <div className="flex items-center space-x-2">
+                                            <NumberInput
+                                                value={alimentacion[item].cantidad}
+                                                onChange={(value) => handleListQuantityChange(setAlimentacion)(item, value)}
+                                                min="0"
+                                                darkMode={darkMode}
+                                            />
+                                            <input
+                                                type="text"
+                                                className={`w-40 px-2 py-1 border rounded ${
+                                                    darkMode ? 'bg-gray-700 border-gray-600' : 'border-gray-300'
+                                                }`}
+                                                placeholder="Observaciones"
+                                                value={alimentacion[item].observaciones}
+                                                maxLength={400}
+                                                onChange={(e) => handleListObsChange(setAlimentacion)(item, e.target.value)}
+                                            />
+                                        </div>
+                                    </div>
+                                ))}
+
+                                {/* Alimentación - Otros */}
+                                <div className={`md:col-span-2 ${cardBg} p-4 rounded-lg border ${borderColor}`}>
+                                    <div className="mb-3 flex items-center justify-between">
+                                        <h3 className="font-semibold">Otros</h3>
+                                        <button
+                                            type="button"
+                                            className={`rounded-md border px-3 py-1 text-sm ${
+                                                darkMode
+                                                    ? 'border-gray-300 text-gray-300 hover:bg-gray-700'
+                                                    : 'border-gray-700 text-gray-700 hover:bg-gray-200'
+                                            }`}
+                                            onClick={() => setAlimentacionCustom(prev => [...prev, { item:'', cantidad:0, observaciones:'' }])}
+                                        >
+                                            Añadir otro
+                                        </button>
+                                    </div>
+                                    {alimentacionCustom.length === 0 ? (
+                                        <p className={`text-sm ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>No hay ítems personalizados aún.</p>
+                                    ) : (
+                                        <div className="space-y-3">
+                                            {alimentacionCustom.map((row, idx) => (
+                                                <div key={idx} className="grid grid-cols-1 md:grid-cols-4 gap-3 items-center">
+                                                    <input
+                                                        type="text"
+                                                        className={`px-2 py-1 border rounded ${
+                                                            darkMode ? 'bg-gray-700 border-gray-600' : 'border-gray-300'
+                                                        }`}
+                                                        placeholder="Nombre"
+                                                        value={row.item}
+                                                        onChange={(e)=> setAlimentacionCustom(prev => prev.map((r,i)=> i===idx ? { ...r, item: e.target.value } : r))}
+                                                    />
+                                                    <NumberInput
+                                                        value={row.cantidad}
+                                                        onChange={(value) => setAlimentacionCustom(prev => prev.map((r,i)=> i===idx ? { ...r, cantidad: value } : r))}
+                                                        min="0"
+                                                        darkMode={darkMode}
+                                                    />
+                                                    <input
+                                                        type="text"
+                                                        className={`px-2 py-1 border rounded col-span-1 md:col-span-2 ${
+                                                            darkMode ? 'bg-gray-700 border-gray-600' : 'border-gray-300'
+                                                        }`}
+                                                        placeholder="Observaciones"
+                                                        value={row.observaciones}
+                                                        onChange={(e)=> setAlimentacionCustom(prev => prev.map((r,i)=> i===idx ? { ...r, observaciones: e.target.value } : r))}
+                                                    />
+                                                    <button
+                                                        type="button"
+                                                        className={`justify-self-end rounded-md border px-3 py-1 text-sm ${
+                                                            darkMode
+                                                                ? 'border-red-500 text-red-400 hover:bg-red-900'
+                                                                : 'border-red-700 text-red-700 hover:bg-red-100'
+                                                        }`}
+                                                        onClick={()=> setAlimentacionCustom(prev => prev.filter((_,i)=> i!==idx))}
+                                                    >
+                                                        Quitar
+                                                    </button>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Equipo de Campo */}
+                    {activeSection === 'camp' && (
+                        <div className="space-y-6">
+                            <h2 className={`text-xl font-bold border-l-4 pl-3 py-1 ${
+                                darkMode ? 'border-cyan-400' : 'border-cyan-600'
+                            }`}>
+                                Equipo de Campo
+                            </h2>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                {CAMPO_ITEMS.map(item => (
+                                    <div key={item} className={`flex items-center justify-between ${cardBg} p-4 rounded-lg border ${borderColor}`}>
+                                        <label className="text-sm font-medium">{item}</label>
+                                        <div className="flex items-center space-x-2">
+                                            <NumberInput
+                                                value={logisticaCampo[item].cantidad}
+                                                onChange={(value) => handleListQuantityChange(setLogisticaCampo)(item, value)}
+                                                min="0"
+                                                darkMode={darkMode}
+                                            />
+                                            <input
+                                                type="text"
+                                                className={`w-40 px-2 py-1 border rounded ${
+                                                    darkMode ? 'bg-gray-700 border-gray-600' : 'border-gray-300'
+                                                }`}
+                                                placeholder="Observaciones"
+                                                value={logisticaCampo[item].observaciones}
+                                                maxLength={400}
+                                                onChange={(e) => handleListObsChange(setLogisticaCampo)(item, e.target.value)}
+                                            />
+                                        </div>
+                                    </div>
+                                ))}
+
+                                {/* Campo - Otros */}
+                                <div className={`md:col-span-2 ${cardBg} p-4 rounded-lg border ${borderColor}`}>
+                                    <div className="mb-3 flex items-center justify-between">
+                                        <h3 className="font-semibold">Otros</h3>
+                                        <button
+                                            type="button"
+                                            className={`rounded-md border px-3 py-1 text-sm ${
+                                                darkMode
+                                                    ? 'border-gray-300 text-gray-300 hover:bg-gray-700'
+                                                    : 'border-gray-700 text-gray-700 hover:bg-gray-200'
+                                            }`}
+                                            onClick={() => setLogisticaCampoCustom(prev => [...prev, { item:'', cantidad:0, observaciones:'' }])}
+                                        >
+                                            Añadir otro
+                                        </button>
+                                    </div>
+                                    {logisticaCampoCustom.length === 0 ? (
+                                        <p className={`text-sm ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>No hay ítems personalizados aún.</p>
+                                    ) : (
+                                        <div className="space-y-3">
+                                            {logisticaCampoCustom.map((row, idx) => (
+                                                <div key={idx} className="grid grid-cols-1 md:grid-cols-4 gap-3 items-center">
+                                                    <input
+                                                        type="text"
+                                                        className={`px-2 py-1 border rounded ${
+                                                            darkMode ? 'bg-gray-700 border-gray-600' : 'border-gray-300'
+                                                        }`}
+                                                        placeholder="Nombre"
+                                                        value={row.item}
+                                                        onChange={(e)=> setLogisticaCampoCustom(prev => prev.map((r,i)=> i===idx ? { ...r, item: e.target.value } : r))}
+                                                    />
+                                                    <NumberInput
+                                                        value={row.cantidad}
+                                                        onChange={(value) => setLogisticaCampoCustom(prev => prev.map((r,i)=> i===idx ? { ...r, cantidad: value } : r))}
+                                                        min="0"
+                                                        darkMode={darkMode}
+                                                    />
+                                                    <input
+                                                        type="text"
+                                                        className={`px-2 py-1 border rounded col-span-1 md:col-span-2 ${
+                                                            darkMode ? 'bg-gray-700 border-gray-600' : 'border-gray-300'
+                                                        }`}
+                                                        placeholder="Observaciones"
+                                                        value={row.observaciones}
+                                                        onChange={(e)=> setLogisticaCampoCustom(prev => prev.map((r,i)=> i===idx ? { ...r, observaciones: e.target.value } : r))}
+                                                    />
+                                                    <button
+                                                        type="button"
+                                                        className={`justify-self-end rounded-md border px-3 py-1 text-sm ${
+                                                            darkMode
+                                                                ? 'border-red-500 text-red-400 hover:bg-red-900'
+                                                                : 'border-red-700 text-red-700 hover:bg-red-100'
+                                                        }`}
+                                                        onClick={()=> setLogisticaCampoCustom(prev => prev.filter((_,i)=> i!==idx))}
+                                                    >
+                                                        Quitar
+                                                    </button>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Limpieza */}
+                    {activeSection === 'hygiene' && (
+                        <div className="space-y-10">
+                            {/* Limpieza Personal */}
+                            <div className="space-y-6">
+                                <h2 className={`text-lg font-semibold border-l-4 pl-3 py-1 ${
+                                    darkMode ? 'border-teal-400' : 'border-teal-600'
+                                }`}>Limpieza Personal</h2>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                    {LIMPIEZA_PERSONAL_ITEMS.map(item => (
+                                        <div key={item} className={`flex items-center justify-between ${cardBg} p-4 rounded-lg border ${borderColor}`}>
+                                            <label className="text-sm font-medium">{item}</label>
+                                            <div className="flex items-center space-x-2">
+                                                <NumberInput
+                                                    value={limpiezaPersonal[item].cantidad}
+                                                    onChange={(value) => handleListQuantityChange(setLimpiezaPersonal)(item, value)}
+                                                    min="0"
+                                                    darkMode={darkMode}
+                                                />
+                                                <input
+                                                    type="text"
+                                                    className={`w-40 px-2 py-1 border rounded ${
+                                                        darkMode ? 'bg-gray-700 border-gray-600' : 'border-gray-300'
+                                                    }`}
+                                                    placeholder="Observaciones"
+                                                    value={limpiezaPersonal[item].observaciones}
+                                                    maxLength={400}
+                                                    onChange={(e) => handleListObsChange(setLimpiezaPersonal)(item, e.target.value)}
+                                                />
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+
+                                {/* Limpieza Personal - Otros */}
+                                <div className={`${cardBg} p-4 rounded-lg border ${borderColor}`}>
+                                    <div className="mb-3 flex items-center justify-between">
+                                        <h3 className="font-semibold">Otros</h3>
+                                        <button
+                                            type="button"
+                                            className={`rounded-md border px-3 py-1 text-sm ${
+                                                darkMode
+                                                    ? 'border-gray-300 text-gray-300 hover:bg-gray-700'
+                                                    : 'border-gray-700 text-gray-700 hover:bg-gray-200'
+                                            }`}
+                                            onClick={() => setLimpiezaPersonalCustom(prev => [...prev, { item:'', cantidad:0, observaciones:'' }])}
+                                        >
+                                            Añadir otro
+                                        </button>
+                                    </div>
+                                    {limpiezaPersonalCustom.length === 0 ? (
+                                        <p className={`text-sm ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>No hay ítems personalizados aún.</p>
+                                    ) : (
+                                        <div className="space-y-3">
+                                            {limpiezaPersonalCustom.map((row, idx) => (
+                                                <div key={idx} className="grid grid-cols-1 md:grid-cols-4 gap-3 items-center">
+                                                    <input
+                                                        type="text"
+                                                        className={`px-2 py-1 border rounded ${
+                                                            darkMode ? 'bg-gray-700 border-gray-600' : 'border-gray-300'
+                                                        }`}
+                                                        placeholder="Nombre"
+                                                        value={row.item}
+                                                        onChange={(e)=> setLimpiezaPersonalCustom(prev => prev.map((r,i)=> i===idx ? { ...r, item: e.target.value } : r))}
+                                                    />
+                                                    <NumberInput
+                                                        value={row.cantidad}
+                                                        onChange={(value) => setLimpiezaPersonalCustom(prev => prev.map((r,i)=> i===idx ? { ...r, cantidad: value } : r))}
+                                                        min="0"
+                                                        darkMode={darkMode}
+                                                    />
+                                                    <input
+                                                        type="text"
+                                                        className={`px-2 py-1 border rounded col-span-1 md:col-span-2 ${
+                                                            darkMode ? 'bg-gray-700 border-gray-600' : 'border-gray-300'
+                                                        }`}
+                                                        placeholder="Observaciones"
+                                                        value={row.observaciones}
+                                                        onChange={(e)=> setLimpiezaPersonalCustom(prev => prev.map((r,i)=> i===idx ? { ...r, observaciones: e.target.value } : r))}
+                                                    />
+                                                    <button
+                                                        type="button"
+                                                        className={`justify-self-end rounded-md border px-3 py-1 text-sm ${
+                                                            darkMode
+                                                                ? 'border-red-500 text-red-400 hover:bg-red-900'
+                                                                : 'border-red-700 text-red-700 hover:bg-red-100'
+                                                        }`}
+                                                        onClick={()=> setLimpiezaPersonalCustom(prev => prev.filter((_,i)=> i!==idx))}
+                                                    >
+                                                        Quitar
+                                                    </button>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* Limpieza General */}
+                            <div className="space-y-6">
+                                <h2 className={`text-lg font-semibold border-l-4 pl-3 py-1 ${
+                                    darkMode ? 'border-teal-400' : 'border-teal-600'
+                                }`}>Limpieza General</h2>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                    {LIMPIEZA_GENERAL_ITEMS.map(item => (
+                                        <div key={item} className={`flex items-center justify-between ${cardBg} p-4 rounded-lg border ${borderColor}`}>
+                                            <label className="text-sm font-medium">{item}</label>
+                                            <div className="flex items-center space-x-2">
+                                                <NumberInput
+                                                    value={limpiezaGeneral[item].cantidad}
+                                                    onChange={(value) => handleListQuantityChange(setLimpiezaGeneral)(item, value)}
+                                                    min="0"
+                                                    darkMode={darkMode}
+                                                />
+                                                <input
+                                                    type="text"
+                                                    className={`w-40 px-2 py-1 border rounded ${
+                                                        darkMode ? 'bg-gray-700 border-gray-600' : 'border-gray-300'
+                                                    }`}
+                                                    placeholder="Observaciones"
+                                                    value={limpiezaGeneral[item].observaciones}
+                                                    maxLength={400}
+                                                    onChange={(e) => handleListObsChange(setLimpiezaGeneral)(item, e.target.value)}
+                                                />
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+
+                                {/* Limpieza General - Otros */}
+                                <div className={`${cardBg} p-4 rounded-lg border ${borderColor}`}>
+                                    <div className="mb-3 flex items-center justify-between">
+                                        <h3 className="font-semibold">Otros</h3>
+                                        <button
+                                            type="button"
+                                            className={`rounded-md border px-3 py-1 text-sm ${
+                                                darkMode
+                                                    ? 'border-gray-300 text-gray-300 hover:bg-gray-700'
+                                                    : 'border-gray-700 text-gray-700 hover:bg-gray-200'
+                                            }`}
+                                            onClick={() => setLimpiezaGeneralCustom(prev => [...prev, { item:'', cantidad:0, observaciones:'' }])}
+                                        >
+                                            Añadir otro
+                                        </button>
+                                    </div>
+                                    {limpiezaGeneralCustom.length === 0 ? (
+                                        <p className={`text-sm ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>No hay ítems personalizados aún.</p>
+                                    ) : (
+                                        <div className="space-y-3">
+                                            {limpiezaGeneralCustom.map((row, idx) => (
+                                                <div key={idx} className="grid grid-cols-1 md:grid-cols-4 gap-3 items-center">
+                                                    <input
+                                                        type="text"
+                                                        className={`px-2 py-1 border rounded ${
+                                                            darkMode ? 'bg-gray-700 border-gray-600' : 'border-gray-300'
+                                                        }`}
+                                                        placeholder="Nombre"
+                                                        value={row.item}
+                                                        onChange={(e)=> setLimpiezaGeneralCustom(prev => prev.map((r,i)=> i===idx ? { ...r, item: e.target.value } : r))}
+                                                    />
+                                                    <NumberInput
+                                                        value={row.cantidad}
+                                                        onChange={(value) => setLimpiezaGeneralCustom(prev => prev.map((r,i)=> i===idx ? { ...r, cantidad: value } : r))}
+                                                        min="0"
+                                                        darkMode={darkMode}
+                                                    />
+                                                    <input
+                                                        type="text"
+                                                        className={`px-2 py-1 border rounded col-span-1 md:col-span-2 ${
+                                                            darkMode ? 'bg-gray-700 border-gray-600' : 'border-gray-300'
+                                                        }`}
+                                                        placeholder="Observaciones"
+                                                        value={row.observaciones}
+                                                        onChange={(e)=> setLimpiezaGeneralCustom(prev => prev.map((r,i)=> i===idx ? { ...r, observaciones: e.target.value } : r))}
+                                                    />
+                                                    <button
+                                                        type="button"
+                                                        className={`justify-self-end rounded-md border px-3 py-1 text-sm ${
+                                                            darkMode
+                                                                ? 'border-red-500 text-red-400 hover:bg-red-900'
+                                                                : 'border-red-700 text-red-700 hover:bg-red-100'
+                                                        }`}
+                                                        onClick={()=> setLimpiezaGeneralCustom(prev => prev.filter((_,i)=> i!==idx))}
+                                                    >
+                                                        Quitar
+                                                    </button>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Medicamentos */}
+                    {activeSection === 'meds' && (
+                        <div className="space-y-6">
+                            <h2 className={`text-xl font-bold border-l-4 pl-3 py-1 ${
+                                darkMode ? 'border-green-500' : 'border-green-600'
+                            }`}>
+                                Medicamentos
+                            </h2>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                {MEDICAMENTOS_ITEMS.map(item => (
+                                    <div key={item} className={`flex items-center justify-between ${cardBg} p-4 rounded-lg border ${borderColor}`}>
+                                        <label className="text-sm font-medium">{item}</label>
+                                        <div className="flex items-center space-x-2">
+                                            <NumberInput
+                                                value={medicamentos[item].cantidad}
+                                                onChange={(value) => handleListQuantityChange(setMedicamentos)(item, value)}
+                                                min="0"
+                                                darkMode={darkMode}
+                                            />
+                                            <input
+                                                type="text"
+                                                className={`w-40 px-2 py-1 border rounded ${
+                                                    darkMode ? 'bg-gray-700 border-gray-600' : 'border-gray-300'
+                                                }`}
+                                                placeholder="Observaciones"
+                                                value={medicamentos[item].observaciones}
+                                                maxLength={400}
+                                                onChange={(e) => handleListObsChange(setMedicamentos)(item, e.target.value)}
+                                            />
+                                        </div>
+                                    </div>
+                                ))}
+
+                                {/* Medicamentos - Otros */}
+                                <div className={`md:col-span-2 ${cardBg} p-4 rounded-lg border ${borderColor}`}>
+                                    <div className="mb-3 flex items-center justify-between">
+                                        <h3 className="font-semibold">Otros</h3>
+                                        <button
+                                            type="button"
+                                            className={`rounded-md border px-3 py-1 text-sm ${
+                                                darkMode
+                                                    ? 'border-gray-300 text-gray-300 hover:bg-gray-700'
+                                                    : 'border-gray-700 text-gray-700 hover:bg-gray-200'
+                                            }`}
+                                            onClick={() => setMedicamentosCustom(prev => [...prev, { item:'', cantidad:0, observaciones:'' }])}
+                                        >
+                                            Añadir otro
+                                        </button>
+                                    </div>
+                                    {medicamentosCustom.length === 0 ? (
+                                        <p className={`text-sm ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>No hay ítems personalizados aún.</p>
+                                    ) : (
+                                        <div className="space-y-3">
+                                            {medicamentosCustom.map((row, idx) => (
+                                                <div key={idx} className="grid grid-cols-1 md:grid-cols-4 gap-3 items-center">
+                                                    <input
+                                                        type="text"
+                                                        className={`px-2 py-1 border rounded ${
+                                                            darkMode ? 'bg-gray-700 border-gray-600' : 'border-gray-300'
+                                                        }`}
+                                                        placeholder="Nombre"
+                                                        value={row.item}
+                                                        onChange={(e)=> setMedicamentosCustom(prev => prev.map((r,i)=> i===idx ? { ...r, item: e.target.value } : r))}
+                                                    />
+                                                    <NumberInput
+                                                        value={row.cantidad}
+                                                        onChange={(value) => setMedicamentosCustom(prev => prev.map((r,i)=> i===idx ? { ...r, cantidad: value } : r))}
+                                                        min="0"
+                                                        darkMode={darkMode}
+                                                    />
+                                                    <input
+                                                        type="text"
+                                                        className={`px-2 py-1 border rounded col-span-1 md:col-span-2 ${
+                                                            darkMode ? 'bg-gray-700 border-gray-600' : 'border-gray-300'
+                                                        }`}
+                                                        placeholder="Observaciones"
+                                                        value={row.observaciones}
+                                                        onChange={(e)=> setMedicamentosCustom(prev => prev.map((r,i)=> i===idx ? { ...r, observaciones: e.target.value } : r))}
+                                                    />
+                                                    <button
+                                                        type="button"
+                                                        className={`justify-self-end rounded-md border px-3 py-1 text-sm ${
+                                                            darkMode
+                                                                ? 'border-red-500 text-red-400 hover:bg-red-900'
+                                                                : 'border-red-700 text-red-700 hover:bg-red-100'
+                                                        }`}
+                                                        onClick={()=> setMedicamentosCustom(prev => prev.filter((_,i)=> i!==idx))}
+                                                    >
+                                                        Quitar
+                                                    </button>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Rescate Animal */}
+                    {activeSection === 'animals' && (
+                        <div className="space-y-6">
+                            <h2 className={`text-xl font-bold border-l-4 pl-3 py-1 ${
+                                darkMode ? 'border-green-400' : 'border-green-600'
+                            }`}>
+                                Rescate Animal
+                            </h2>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                {RESCATE_ANIMAL_ITEMS.map(item => (
+                                    <div key={item} className={`flex items-center justify-between ${cardBg} p-4 rounded-lg border ${borderColor}`}>
+                                        <label className="text-sm font-medium">{item}</label>
+                                        <div className="flex items-center space-x-2">
+                                            <NumberInput
+                                                value={rescateAnimal[item].cantidad}
+                                                onChange={(value) => handleListQuantityChange(setRescateAnimal)(item, value)}
+                                                min="0"
+                                                darkMode={darkMode}
+                                            />
+                                            <input
+                                                type="text"
+                                                className={`w-40 px-2 py-1 border rounded ${
+                                                    darkMode ? 'bg-gray-700 border-gray-600' : 'border-gray-300'
+                                                }`}
+                                                placeholder="Observaciones"
+                                                value={rescateAnimal[item].observaciones}
+                                                maxLength={400}
+                                                onChange={(e) => handleListObsChange(setRescateAnimal)(item, e.target.value)}
+                                            />
+                                        </div>
+                                    </div>
+                                ))}
+
+                                {/* Rescate Animal - Otros */}
+                                <div className={`md:col-span-2 ${cardBg} p-4 rounded-lg border ${borderColor}`}>
+                                    <div className="mb-3 flex items-center justify-between">
+                                        <h3 className="font-semibold">Otros</h3>
+                                        <button
+                                            type="button"
+                                            className={`rounded-md border px-3 py-1 text-sm ${
+                                                darkMode
+                                                    ? 'border-gray-300 text-gray-300 hover:bg-gray-700'
+                                                    : 'border-gray-700 text-gray-700 hover:bg-gray-200'
+                                            }`}
+                                            onClick={() => setRescateAnimalCustom(prev => [...prev, { item:'', cantidad:0, observaciones:'' }])}
+                                        >
+                                            Añadir otro
+                                        </button>
+                                    </div>
+                                    {rescateAnimalCustom.length === 0 ? (
+                                        <p className={`text-sm ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>No hay ítems personalizados aún.</p>
+                                    ) : (
+                                        <div className="space-y-3">
+                                            {rescateAnimalCustom.map((row, idx) => (
+                                                <div key={idx} className="grid grid-cols-1 md:grid-cols-4 gap-3 items-center">
+                                                    <input
+                                                        type="text"
+                                                        className={`px-2 py-1 border rounded ${
+                                                            darkMode ? 'bg-gray-700 border-gray-600' : 'border-gray-300'
+                                                        }`}
+                                                        placeholder="Nombre"
+                                                        value={row.item}
+                                                        onChange={(e)=> setRescateAnimalCustom(prev => prev.map((r,i)=> i===idx ? { ...r, item: e.target.value } : r))}
+                                                    />
+                                                    <NumberInput
+                                                        value={row.cantidad}
+                                                        onChange={(value) => setRescateAnimalCustom(prev => prev.map((r,i)=> i===idx ? { ...r, cantidad: value } : r))}
+                                                        min="0"
+                                                        darkMode={darkMode}
+                                                    />
+                                                    <input
+                                                        type="text"
+                                                        className={`px-2 py-1 border rounded col-span-1 md:col-span-2 ${
+                                                            darkMode ? 'bg-gray-700 border-gray-600' : 'border-gray-300'
+                                                        }`}
+                                                        placeholder="Observaciones"
+                                                        value={row.observaciones}
+                                                        onChange={(e)=> setRescateAnimalCustom(prev => prev.map((r,i)=> i===idx ? { ...r, observaciones: e.target.value } : r))}
+                                                    />
+                                                    <button
+                                                        type="button"
+                                                        className={`justify-self-end rounded-md border px-3 py-1 text-sm ${
+                                                            darkMode
+                                                                ? 'border-red-500 text-red-400 hover:bg-red-900'
+                                                                : 'border-red-700 text-red-700 hover:bg-red-100'
+                                                        }`}
+                                                        onClick={()=> setRescateAnimalCustom(prev => prev.filter((_,i)=> i!==idx))}
+                                                    >
+                                                        Quitar
+                                                    </button>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    )}
 
                     {/* Navegación inferior */}
                     <div className="mt-8">
-                        <div className="mb-4 w-full bg-gray-200 rounded-full h-2.5 dark:bg-gray-700">
+                        <div className="mb-4 w-full bg-gray-200 rounded-full h-2.5">
                             <div
                                 className="bg-green-500 h-2.5 rounded-full"
                                 style={{
@@ -1033,7 +2232,7 @@ const BombForm = () => {
                                         ? 'bg-gray-300 text-gray-500 cursor-not-allowed dark:bg-gray-700 dark:text-gray-400'
                                         : `${
                                             darkMode
-                                                ? 'bg-purple-800 text-white hover:bg-purple-700'
+                                                ? 'bg-purple-700 text-white hover:bg-purple-600'
                                                 : 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200'
                                         }`
                                 }`}
@@ -1043,10 +2242,10 @@ const BombForm = () => {
 
                             <div className="flex items-center justify-end gap-4">
                                 {submitStatus.message && !submitStatus.isFinal && (
-                                    <div className={`px-4 py-2 rounded-lg text-sm ${
+                                    <div className={`px-4 py-2 rounded-lg ${
                                         submitStatus.success
-                                            ? darkMode ? 'bg-green-900/50 text-green-200' : 'bg-green-100 text-green-800'
-                                            : darkMode ? 'bg-red-900/50 text-red-200' : 'bg-red-100 text-red-800'
+                                            ? darkMode ? 'bg-green-900 text-green-200' : 'bg-green-100 text-green-800'
+                                            : darkMode ? 'bg-red-900 text-red-200' : 'bg-red-100 text-red-800'
                                     }`}>
                                         {submitStatus.message}
                                     </div>
