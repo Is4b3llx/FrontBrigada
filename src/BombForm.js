@@ -5,7 +5,7 @@ import autoTable from 'jspdf-autotable';
 
 // Paleta de colores para cada sección
 const SECTION_COLORS = [
-    { primary: '#9c27b0', secondary: '#e1bee7' }, // Lila - Información
+    { primary: '#b02727', secondary: '#e1bee7' }, // Lila - Información
     { primary: '#7b1fa2', secondary: '#ce93d8' }, // Lila oscuro - EPP
     { primary: '#673ab7', secondary: '#b39ddb' }, // Índigo - Herramientas
     { primary: '#3f51b5', secondary: '#9fa8da' }, // Azul - Logística
