@@ -336,10 +336,28 @@ const BombForm = () => {
     };
 
     const handleListCostChange = (setter) => (item, value) => {
+        let processedValue = value;
+
+        if (item === 'Amortiguadores' || item === 'Llantas') {
+            // Permitir solo números enteros mientras se escribe
+            processedValue = value.replace(/[^0-9]/g, '');
+        }
+
         setter(prev => ({
             ...prev,
-            [item]: { ...prev[item], costo: Number(value) || 0 }
+            [item]: { ...prev[item], costo: processedValue === '' ? 0 : Number(processedValue) }
         }));
+    };
+
+    const handleEvenNumberBlur = (setter) => (item, value) => {
+        const intValue = parseInt(value, 10) || 0;
+        if (intValue % 2 !== 0) {
+            // Si el número es impar, redondearlo al par anterior más cercano
+            setter(prev => ({
+                ...prev,
+                [item]: { ...prev[item], costo: Math.floor(intValue / 2) * 2 }
+            }));
+        }
     };
 
     const handleListObsChange = (setter) => (item, text) => {
@@ -1521,13 +1539,18 @@ const BombForm = () => {
                                                 <input
                                                     type="number"
                                                     min="0"
-                                                    step="0.01"
+                                                    step={ (item === 'Amortiguadores' || item === 'Llantas') ? 2 : 0.01 }
                                                     className={`w-24 px-2 py-1 border rounded text-center ${
                                                         darkMode ? 'bg-gray-700 border-gray-600' : 'border-gray-300'
                                                     }`}
                                                     placeholder="Monto"
                                                     value={logisticaRepuestos[item].costo}
                                                     onChange={(e) => handleListCostChange(setLogisticaRepuestos)(item, e.target.value)}
+                                                    onBlur={(e) => {
+                                                        if (item === 'Amortiguadores' || item === 'Llantas') {
+                                                            handleEvenNumberBlur(setLogisticaRepuestos)(item, e.target.value);
+                                                        }
+                                                    }}
                                                 />
                                             </div>
                                             <input
